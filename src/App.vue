@@ -6,22 +6,29 @@
         <div class="create-todo">
             <div class="input-group mb-3">
                 <input
+                    ref="inputAdd"
                     type="text"
                     class="form-control"
                     placeholder="Công việc"
                     aria-label="Công việc"
-                    aria-describedby="button-addon2"
                     v-model="todoName"
                 />
                 <div class="input-group-append">
                     <button
                         class="btn btn-primary"
                         type="button"
-                        id="button-addon2"
                         @click="createTodo"
                         :disabled="!todoName"
                     >
                         Thêm mới
+                    </button>
+
+                    <button
+                        class="btn btn-success"
+                        type="button"
+                        @click="getTodo()"
+                    >
+                        Lấy lại dữ liệu
                     </button>
                 </div>
             </div>
@@ -41,8 +48,12 @@
                         </td>
                         <td class="align-middle">
                             <input
-                                v-if="editor && rowSelectorIndex === todo._id"
+                                :ref="todo._id"
+                                type="text"
+                                class="form-control"
+                                v-if="editor && rowSelectorId === todo._id"
                                 v-model="todo.name"
+                                @change="changeName(todo)"
                             />
                             <span v-else>{{ todo.name }}</span>
                         </td>
@@ -52,10 +63,7 @@
                                     type="checkbox"
                                     :checked="todo.complete"
                                     :disabled="
-                                        !(
-                                            editor &&
-                                            rowSelectorIndex === todo._id
-                                        )
+                                        !(editor && rowSelectorId === todo._id)
                                     "
                                     class="form-check-input"
                                     @change="changeStatus(todo)"
@@ -64,7 +72,7 @@
                         </td>
                         <td class="align-middle">
                             <button
-                                v-if="editor && rowSelectorIndex === todo._id"
+                                v-if="editor && rowSelectorId === todo._id"
                                 type="button"
                                 class="btn btn-success"
                                 @click="updateTodo(todo)"
@@ -94,40 +102,51 @@
         <div class="loading" v-if="loading">
             <div class="spinner-grow text-success" role="status"></div>
         </div>
-        <div class="pagination-todo">
-            <nav aria-label="Page navigation example">
-                <ul class="pagination justify-content-end">
-                    <li
-                        @click="getTodo(pageIndex - 1)"
-                        :class="[{ disabled: pageIndex === 1 }, 'page-item']"
-                    >
-                        <a class="page-link" href="#" aria-label="Previous">
-                            <span aria-hidden="true">&laquo;</span>
-                        </a>
-                    </li>
-                    <li
-                        class="page-item"
-                        v-for="index in totalPage"
-                        :key="index"
-                        :class="[{ active: index === pageIndex }, 'page-item']"
-                        @click="getTodo(index)"
-                    >
-                        <a class="page-link" href="#">{{ index }}</a>
-                    </li>
-                    <li
-                        class="page-item"
-                        @click="getTodo(pageIndex + 1)"
-                        :class="[
-                            { disabled: pageIndex === totalPage },
-                            'page-item',
-                        ]"
-                    >
-                        <a class="page-link" href="#" aria-label="Next">
-                            <span aria-hidden="true">&raquo;</span>
-                        </a>
-                    </li>
-                </ul>
-            </nav>
+        <div>
+            <div class="pagination-todo">
+                <div class="total-todo">
+                    Tổng: {{ totalTodoCurrent }}/{{ totalTodo }}
+                </div>
+                <nav>
+                    <ul class="pagination justify-content-end">
+                        <li
+                            @click="getTodo(pageIndex - 1)"
+                            :class="[
+                                { disabled: pageIndex === 1 },
+                                'page-item',
+                            ]"
+                        >
+                            <a class="page-link" aria-label="Previous">
+                                <span aria-hidden="true">&laquo;</span>
+                            </a>
+                        </li>
+                        <li
+                            class="page-item"
+                            v-for="index in totalPage"
+                            :key="index"
+                            :class="[
+                                { active: index === pageIndex },
+                                'page-item',
+                            ]"
+                            @click="getTodo(index)"
+                        >
+                            <a class="page-link">{{ index }}</a>
+                        </li>
+                        <li
+                            class="page-item"
+                            @click="getTodo(pageIndex + 1)"
+                            :class="[
+                                { disabled: pageIndex === totalPage },
+                                'page-item',
+                            ]"
+                        >
+                            <a class="page-link" aria-label="Next">
+                                <span aria-hidden="true">&raquo;</span>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
         </div>
     </div>
 </template>
@@ -138,17 +157,22 @@ import swal from "sweetalert";
 export default {
     name: "App",
     data() {
+        window.todoList = this;
+
         return {
             baseUrl: "https://k24-server-version2.herokuapp.com",
             todos: [],
+            oldTodo: null,
             todoName: "",
             pageIndex: 1,
             pageSize: 10,
             editor: false,
-            rowSelectorIndex: null,
+            rowSelectorId: null,
             loading: false,
             totalTodo: 0,
             totalPage: 0,
+            isChangeValue: false,
+            totalTodoCurrent: 0,
         };
     },
     methods: {
@@ -179,7 +203,8 @@ export default {
 
             // Reset giá trị
             me.editor = false;
-            me.rowSelectorIndex = null;
+            me.rowSelectorId = null;
+            me.isChangeValue = false;
 
             // Lấy số thứ tự trang
             if (!pageIndex) {
@@ -202,6 +227,7 @@ export default {
 
             if (data) {
                 me.todos = data.todoPage;
+                me.totalTodoCurrent = data.count;
             }
 
             me.unmask();
@@ -338,15 +364,57 @@ export default {
         editTodo(dataRow) {
             const me = this;
 
-            me.rowSelectorIndex = dataRow._id;
-            me.editor = !me.editor;
+            // Nếu dòng trước đã thay đổi mà chưa Lưu thì reset lại
+            if (me.isChangeValue) {
+                let todo = me.todos.find(
+                    (todo) => todo._id == me.rowSelectorId
+                );
+
+                if (me.oldTodo && todo) {
+                    todo.name = me.oldTodo.name;
+                    todo.complete = me.oldTodo.complete;
+                }
+            }
+
+            // Gán các thông tin mặc định khi chọn dòng sửa
+            me.oldTodo = JSON.parse(JSON.stringify(dataRow));
+            me.rowSelectorId = dataRow._id;
+            me.editor = true;
+
+            // Thực hiện focus vào ô thêm công việc
+            me.$nextTick(function () {
+                if (me.$refs && me.$refs[dataRow._id][0]) {
+                    me.$refs[dataRow._id][0].focus();
+                }
+            });
         },
 
         /**
          * Thay đổi trạng thái của todo
          */
         changeStatus(dataRow) {
+            const me = this;
+
             dataRow.complete = !dataRow.complete;
+
+            if (
+                dataRow &&
+                me.oldTodo &&
+                dataRow.complete !== me.oldTodo.complete
+            ) {
+                me.isChangeValue = true;
+            }
+        },
+
+        /**
+         * Thay đổi tên của todo
+         */
+        changeName(dataRow) {
+            const me = this;
+
+            if (dataRow && me.oldTodo && dataRow.name !== me.oldTodo.name) {
+                me.isChangeValue = true;
+            }
         },
 
         /**
@@ -370,6 +438,13 @@ export default {
 
     mounted() {
         const me = this;
+
+        // Thực hiện focus vào ô thêm công việc
+        me.$nextTick(function () {
+            if (me.$refs && me.$refs.inputAdd) {
+                me.$refs.inputAdd.focus();
+            }
+        });
 
         me.getTodo();
     },
@@ -399,7 +474,7 @@ tbody {
     margin-left: 10px;
 }
 
-.input-group-append {
+.input-group-append .btn {
     margin-left: 10px !important;
 }
 
@@ -416,5 +491,25 @@ tbody {
 .spinner-grow {
     position: absolute;
     top: calc(50% - 16px);
+}
+
+.page-item a {
+    cursor: pointer;
+}
+
+.pagination-todo {
+    position: relative;
+    display: flex;
+    justify-items: center;
+    align-items: center;
+}
+
+.pagination-todo nav {
+    position: absolute !important;
+    right: 0 !important;
+}
+
+.pagination {
+    margin-bottom: 0 !important;
 }
 </style>
