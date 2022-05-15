@@ -36,17 +36,19 @@
         <div class="todo-list">
             <table class="table table-striped">
                 <thead>
-                    <th scope="col" class="col-1">STT</th>
-                    <th scope="col" class="col-5">Tên</th>
-                    <th scope="col" class="col-3">Hoàn thành</th>
-                    <th scope="col" class="col-3">Hành động</th>
+                    <th scope="col" class="align-middle col-1">STT</th>
+                    <th scope="col" class="align-middle col-5 text-left">
+                        Tên
+                    </th>
+                    <th scope="col" class="align-middle col-3">Hoàn thành</th>
+                    <th scope="col" class="align-middle col-3">Hành động</th>
                 </thead>
                 <tbody>
                     <tr v-for="(todo, index) in todos" :key="todo._id">
                         <td class="align-middle" scope="row">
                             {{ index + (pageIndex - 1) * pageSize + 1 }}
                         </td>
-                        <td class="align-middle">
+                        <td class="align-middle text-left">
                             <input
                                 :ref="todo._id"
                                 type="text"
@@ -88,6 +90,15 @@
                                 Sửa
                             </button>
                             <button
+                                v-if="editor && rowSelectorId === todo._id"
+                                type="button"
+                                class="btn btn-danger"
+                                @click="cancelTodo()"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                v-else
                                 type="button"
                                 class="btn btn-danger"
                                 @click="deleteTodo(todo)"
@@ -108,6 +119,39 @@
                     Tổng: {{ totalTodoCurrent }}/{{ totalTodo }}
                 </div>
                 <nav>
+                    <div class="dropdown">
+                        <button
+                            class="btn dropdown-toggle"
+                            type="button"
+                            @click="showDrownPageSize"
+                        >
+                            {{ pageSize }}
+                        </button>
+                        <div
+                            :class="[
+                                {
+                                    'active-drown-page-size':
+                                        isShowDrownPageSize,
+                                },
+                                'dropdown-menu',
+                            ]"
+                        >
+                            <button
+                                :class="[
+                                    {
+                                        active: item === pageSize,
+                                    },
+                                    'dropdown-item',
+                                ]"
+                                type="button"
+                                v-for="item in pageSizes"
+                                :key="item"
+                                @click="selectPageSize(item)"
+                            >
+                                {{ item }}
+                            </button>
+                        </div>
+                    </div>
                     <ul class="pagination justify-content-end">
                         <li
                             @click="getTodo(pageIndex - 1)"
@@ -173,6 +217,8 @@ export default {
             totalPage: 0,
             isChangeValue: false,
             totalTodoCurrent: 0,
+            pageSizes: [5, 10, 15, 20],
+            isShowDrownPageSize: false,
         };
     },
     methods: {
@@ -212,6 +258,11 @@ export default {
             }
 
             me.pageIndex = pageIndex ? pageIndex : 1;
+
+            // Lấy số bản ghi trên 1 trang
+            let pageSize = Number.parseInt(localStorage.getItem("pageSize"));
+
+            me.pageSize = Number.isInteger(pageSize) ? pageSize : 5;
 
             // Lấy tổng số bản ghi
             await me.getTotalCount();
@@ -366,14 +417,7 @@ export default {
 
             // Nếu dòng trước đã thay đổi mà chưa Lưu thì reset lại
             if (me.isChangeValue) {
-                let todo = me.todos.find(
-                    (todo) => todo._id == me.rowSelectorId
-                );
-
-                if (me.oldTodo && todo) {
-                    todo.name = me.oldTodo.name;
-                    todo.complete = me.oldTodo.complete;
-                }
+                me.cancelTodo();
             }
 
             // Gán các thông tin mặc định khi chọn dòng sửa
@@ -387,6 +431,24 @@ export default {
                     me.$refs[dataRow._id][0].focus();
                 }
             });
+        },
+
+        /**
+         * Hàm hủy thao tác sửa
+         */
+        cancelTodo() {
+            const me = this;
+
+            let todo = me.todos.find((todo) => todo._id == me.rowSelectorId);
+
+            if (me.oldTodo && todo) {
+                todo.name = me.oldTodo.name;
+                todo.complete = me.oldTodo.complete;
+
+                me.oldTodo = null;
+                me.rowSelectorId = null;
+                me.editor = false;
+            }
         },
 
         /**
@@ -434,6 +496,31 @@ export default {
 
             me.loading = false;
         },
+
+        /**
+         * Ẩn hiện dropdown page size
+         */
+        showDrownPageSize() {
+            const me = this;
+
+            me.isShowDrownPageSize = !me.isShowDrownPageSize;
+        },
+
+        /**
+         * Chọn lại số bản ghi trên 1 trang
+         */
+        selectPageSize(pageSize) {
+            const me = this;
+
+            me.pageSize = pageSize;
+
+            // Lưu số bản ghi của 1 trang
+            localStorage.setItem("pageSize", me.pageSize);
+
+            me.getTodo();
+
+            me.showDrownPageSize();
+        },
     },
 
     mounted() {
@@ -458,7 +545,7 @@ export default {
     -moz-osx-font-smoothing: grayscale;
     text-align: center;
     color: #2c3e50;
-    margin-top: 60px;
+    margin-top: 20px;
 }
 
 tbody {
@@ -507,9 +594,39 @@ tbody {
 .pagination-todo nav {
     position: absolute !important;
     right: 0 !important;
+    display: flex;
 }
 
 .pagination {
     margin-bottom: 0 !important;
+}
+
+.text-left {
+    text-align: left;
+}
+
+thead {
+    height: 55px;
+    background: #ccc;
+}
+
+.todo-list td .btn-primary,
+.todo-list td .btn-success {
+    width: 80px;
+}
+
+.dropdown {
+    margin-right: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 0.25rem;
+}
+
+.dropdown-menu {
+    width: 100% !important;
+    min-width: 100% !important;
+}
+
+.active-drown-page-size {
+    display: block !important;
 }
 </style>
