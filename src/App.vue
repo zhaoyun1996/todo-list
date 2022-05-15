@@ -37,11 +37,11 @@
                 <tbody>
                     <tr v-for="(todo, index) in todos" :key="todo._id">
                         <td class="align-middle" scope="row">
-                            {{ index + 1 }}
+                            {{ index + (pageIndex - 1) * pageSize + 1 }}
                         </td>
                         <td class="align-middle">
                             <input
-                                v-if="editor && rowSelectorIndex == todo._id"
+                                v-if="editor && rowSelectorIndex === todo._id"
                                 v-model="todo.name"
                             />
                             <span v-else>{{ todo.name }}</span>
@@ -54,7 +54,7 @@
                                     :disabled="
                                         !(
                                             editor &&
-                                            rowSelectorIndex == todo._id
+                                            rowSelectorIndex === todo._id
                                         )
                                     "
                                     class="form-check-input"
@@ -64,7 +64,7 @@
                         </td>
                         <td class="align-middle">
                             <button
-                                v-if="editor && rowSelectorIndex == todo._id"
+                                v-if="editor && rowSelectorIndex === todo._id"
                                 type="button"
                                 class="btn btn-success"
                                 @click="updateTodo(todo)"
@@ -91,29 +91,44 @@
                 </tbody>
             </table>
         </div>
-        <!-- <div>
+        <div class="loading" v-if="loading">
+            <div class="spinner-grow text-success" role="status"></div>
+        </div>
+        <div class="pagination-todo">
             <nav aria-label="Page navigation example">
                 <ul class="pagination justify-content-end">
-                    <li class="page-item">
+                    <li
+                        @click="getTodo(pageIndex - 1)"
+                        :class="[{ disabled: pageIndex === 1 }, 'page-item']"
+                    >
                         <a class="page-link" href="#" aria-label="Previous">
                             <span aria-hidden="true">&laquo;</span>
                         </a>
                     </li>
                     <li
                         class="page-item"
-                        v-for="(todo, index) in todos"
+                        v-for="index in totalPage"
                         :key="index"
+                        :class="[{ active: index === pageIndex }, 'page-item']"
+                        @click="getTodo(index)"
                     >
-                        <a class="page-link" href="#">{{ index + 1 }}</a>
+                        <a class="page-link" href="#">{{ index }}</a>
                     </li>
-                    <li class="page-item">
+                    <li
+                        class="page-item"
+                        @click="getTodo(pageIndex + 1)"
+                        :class="[
+                            { disabled: pageIndex === totalPage },
+                            'page-item',
+                        ]"
+                    >
                         <a class="page-link" href="#" aria-label="Next">
                             <span aria-hidden="true">&raquo;</span>
                         </a>
                     </li>
                 </ul>
             </nav>
-        </div> -->
+        </div>
     </div>
 </template>
 
@@ -126,30 +141,70 @@ export default {
         return {
             baseUrl: "https://k24-server-version2.herokuapp.com",
             todos: [],
-            totalTodo: 0,
             todoName: "",
             pageIndex: 1,
-            pageSize: 5,
+            pageSize: 10,
             editor: false,
             rowSelectorIndex: null,
+            loading: false,
+            totalTodo: 0,
+            totalPage: 0,
         };
     },
     methods: {
         /**
-         * Lấy tất cả các công việc
+         * Lấy công việc
          */
-        async getTodo() {
+        async getTodo(pageIndex) {
             const me = this;
 
+            me.mask();
+
+            // Lấy tất cả bản ghi
+            // let { data } = await axios({
+            //     url: [me.baseUrl, "todo"].join("/"),
+            //     method: "get",
+            // });
+
+            // if (data) {
+            //     me.todos = data.todoList;
+            //     me.totalTodo = data.count;
+            // }
+
+            // Bỏ qua sự kiện khi nút bị disabled
+            if (pageIndex === 0 || pageIndex === me.totalPage + 1) {
+                me.unmask();
+                return;
+            }
+
+            // Reset giá trị
+            me.editor = false;
+            me.rowSelectorIndex = null;
+
+            // Lấy số thứ tự trang
+            if (!pageIndex) {
+                pageIndex = Number.parseInt(localStorage.getItem("pageIndex"));
+            }
+
+            me.pageIndex = pageIndex ? pageIndex : 1;
+
+            // Lấy tổng số bản ghi
+            await me.getTotalCount();
+
+            // Lưu giá trị số thứ tự trang
+            localStorage.setItem("pageIndex", me.pageIndex);
+
+            // Lấy bản ghi trên 1 trang
             let { data } = await axios({
-                url: [me.baseUrl, "todo"].join("/"),
+                url: [me.baseUrl, "todo", me.pageIndex, me.pageSize].join("/"),
                 method: "get",
             });
 
             if (data) {
-                me.todos = data.todoList;
-                me.totalTodo = data.count;
+                me.todos = data.todoPage;
             }
+
+            me.unmask();
         },
 
         /**
@@ -157,6 +212,8 @@ export default {
          */
         async updateTodo(dataRow) {
             const me = this;
+
+            me.mask();
 
             let { data } = await axios({
                 url: [me.baseUrl, "todo", dataRow._id].join("/"),
@@ -168,7 +225,6 @@ export default {
             });
 
             if (data) {
-                me.editor = false;
                 me.getTodo();
 
                 swal(
@@ -180,6 +236,8 @@ export default {
                         timer: 1500,
                     }
                 );
+            } else {
+                me.unmask();
             }
         },
 
@@ -188,6 +246,8 @@ export default {
          */
         async deleteTodo(dataRow) {
             const me = this;
+
+            me.mask();
 
             let action = await swal({
                 title: "Xóa công việc này?",
@@ -215,6 +275,8 @@ export default {
                             timer: 1500,
                         }
                     );
+                } else {
+                    me.unmask();
                 }
             }
         },
@@ -224,6 +286,8 @@ export default {
          */
         async createTodo() {
             const me = this;
+
+            me.mask();
 
             let { data } = await axios({
                 url: [me.baseUrl, "todo"].join("/"),
@@ -236,17 +300,36 @@ export default {
 
             if (data) {
                 me.getTodo();
-            }
 
-            swal(
-                "Thêm công việc",
-                data ? "Thành công!" : "Thất bại!",
-                data ? "success" : "error",
-                {
-                    buttons: false,
-                    timer: 1500,
-                }
-            );
+                swal(
+                    "Thêm công việc",
+                    data ? "Thành công!" : "Thất bại!",
+                    data ? "success" : "error",
+                    {
+                        buttons: false,
+                        timer: 1500,
+                    }
+                );
+            } else {
+                me.unmask();
+            }
+        },
+
+        /**
+         * Lấy tổng bản ghi
+         */
+        async getTotalCount() {
+            const me = this;
+
+            let { data } = await axios({
+                url: [me.baseUrl, "count"].join("/"),
+                method: "get",
+            });
+
+            if (data) {
+                me.totalTodo = data.items;
+                me.totalPage = Math.ceil(me.totalTodo / me.pageSize);
+            }
         },
 
         /**
@@ -263,9 +346,25 @@ export default {
          * Thay đổi trạng thái của todo
          */
         changeStatus(dataRow) {
+            dataRow.complete = !dataRow.complete;
+        },
+
+        /**
+         * Hiển thị loading
+         */
+        mask() {
             const me = this;
 
-            dataRow.complete = !dataRow.complete;
+            me.loading = true;
+        },
+
+        /**
+         * Ẩn loading
+         */
+        unmask() {
+            const me = this;
+
+            me.loading = false;
         },
     },
 
@@ -302,5 +401,20 @@ tbody {
 
 .input-group-append {
     margin-left: 10px !important;
+}
+
+.loading {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    top: 0;
+    left: 0;
+    position: absolute;
+    z-index: 2;
+}
+
+.spinner-grow {
+    position: absolute;
+    top: calc(50% - 16px);
 }
 </style>
